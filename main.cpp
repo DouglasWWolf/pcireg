@@ -73,7 +73,7 @@ int main(int argc, const char** argv)
 //=================================================================================================
 void showHelp()
 {
-    printf("pcireg [-r <region#>] <address> [data]\n");
+    printf("pcireg [-r <region#>] [-d <vendor>:<device>] <address> [data]\n");
     exit(1);
 }
 //=================================================================================================
