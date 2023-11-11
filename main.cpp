@@ -8,10 +8,13 @@
 
 using namespace std;
 
-int       pciRegion   = 0;
+int       pciRegion   = -1;
 bool      isAxiWrite  = false;
 uint32_t  axiAddr = 0xFFFFFFFF;
 uint32_t  axiData;
+string    device;
+int       vendorID;
+int       deviceID;
 PciDevice PCI;
 
 
@@ -26,7 +29,31 @@ void execute();
 //=================================================================================================
 int main(int argc, const char** argv)
 {
+    char* p;
+
     parseCommandLine(argv); 
+
+    // If there was no device specified on the command line, try fetching it from
+    // the environment variable
+    if (device == "") 
+    {
+        p = getenv("pcireg_device");
+        if (p) device = p;
+    }
+
+    // If no device is otherwise specified, use the default
+    if (device == "") device = "10EE:903F";
+
+    // If there was no region specified on the command line, try fetching it from
+    // the environment variable
+    if (pciRegion == -1)
+    {
+        p = getenv("pcireg_region");
+        if (p) pciRegion = strtoul(p, 0, 0);
+    }
+
+    // If no region is otherwise specified, use the default
+    if (pciRegion == -1) pciRegion = 0;
 
     try
     {
@@ -82,6 +109,15 @@ void parseCommandLine(const char** argv)
             continue;
         }
 
+        // If it's the "-d" switch, the user is specifying a device code
+        if (strcmp(token, "-d") == 0)
+        {
+            token = argv[i++];
+            if (token == nullptr) showHelp();
+            device = token;
+            continue;
+        }
+
         // Store this parameter into either "address" or "data"
         if (++index == 1)
             axiAddr = strtoul(token, 0, 0);
@@ -104,7 +140,7 @@ void parseCommandLine(const char** argv)
 void execute()
 {
     // Map the PCI memory-mapped resource regions into user-space
-    PCI.open(0x10ee, 0x903f);
+    PCI.open(device);
 
     // Fetch the list of memory mapped resource regions
     auto resource = PCI.resourceList();

@@ -24,6 +24,7 @@ public:
 
     // Opens a connection to a PCIe device
     void    open(int vendorID, int deviceID, std::string deviceDir = "");
+    void    open(std::string device, std::string deviceDir = "");
 
     // Fetches the list of memory mappable resources
     std::vector<resource_t>& resourceList() {return resource_;}

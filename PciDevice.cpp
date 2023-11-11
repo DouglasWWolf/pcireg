@@ -206,6 +206,30 @@ std::vector<PciDevice::resource_t> PciDevice::getResourceList(std::string device
 }
 //=================================================================================================
 
+//=================================================================================================
+// open() - Opens a connection to the specified PCIe device
+//
+// Passed: device    = device identifier in the form "xxxx:yyyy"
+//         deviceDir = Name of the file-system directory where PCI device information can
+//                     be found.   If empty-string, a sensible default is used
+//=================================================================================================
+void PciDevice::open(string device, string deviceDir)
+{
+    int vendorID=0, deviceID=0;
+
+    // Extract the vendor ID from the first part of the device name
+    vendorID = strtoul(device.c_str(), 0, 16);
+
+    // Go looking for a colon in the device name
+    const char* p = strchr(device.c_str(), ':');
+
+    // If we find that colon, extract the device ID f
+    if (p) deviceID = strtoul(p+1, 0, 16);
+
+    // Now that we have the vendorID and deviceID as integers, call the regular "open" routine
+    open(vendorID, deviceID, deviceDir);
+}
+//=================================================================================================
 
 
 
