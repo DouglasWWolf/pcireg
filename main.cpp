@@ -1,3 +1,8 @@
+//=================================================================================================
+// pcireg - Tool for command-line read/write of PCI device registers
+//
+// Author: D. Wolf
+//=================================================================================================
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,6 +12,14 @@
 #include "PciDevice.h"
 
 using namespace std;
+
+
+const int OM_NONE = 0;
+const int OM_DEC  = 1;
+const int OM_HEX  = 2;
+const int OM_BOTH = 3;    
+int output_mode = OM_NONE;
+
 
 int       pciRegion   = -1;
 bool      isAxiWrite  = false;
@@ -73,7 +86,7 @@ int main(int argc, const char** argv)
 //=================================================================================================
 void showHelp()
 {
-    printf("pcireg [-r <region#>] [-d <vendor>:<device>] <address> [data]\n");
+    printf("pcireg [-hex] [-dec] [-r <region#>] [-d <vendor>:<device>] <address> [data]\n");
     exit(1);
 }
 //=================================================================================================
@@ -117,6 +130,19 @@ void parseCommandLine(const char** argv)
             device = token;
             continue;
         }
+
+        if (strcmp(token, "-dec") == 0)
+        {
+            output_mode |= OM_DEC;
+            continue;            
+        }
+
+        if (strcmp(token, "-hex") == 0)
+        {
+            output_mode |= OM_HEX;
+            continue;            
+        }
+
 
         // Store this parameter into either "address" or "data"
         if (++index == 1)
@@ -166,7 +192,16 @@ void execute()
     else
     {
         axiData = axiReg;
-        printf("0x%08X (%u)\n", axiData, axiData);
+        switch (output_mode)
+        {
+            case OM_DEC:   printf("%u\n", axiData);
+                           break;
+            case OM_HEX:   printf("%08X\n", axiData);
+                           break;
+            case OM_BOTH:  printf("%u %08X\n", axiData, axiData);
+                           break;
+            default:       printf("0x%08X (%u)\n", axiData, axiData);        
+        }
     }
 }
 //=================================================================================================
