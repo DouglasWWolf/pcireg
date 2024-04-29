@@ -1,3 +1,3 @@
 # pcireg 
 
-A utility for read/writing PCI registers from the command line
+A utility for read/writing PCI registers from the Linux command line
