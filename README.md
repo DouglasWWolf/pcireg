@@ -1,1 +1,3 @@
-# A utility for read/writing PCI registers from the command line
+# pcireg 
+
+A utility for read/writing PCI registers from the command line
