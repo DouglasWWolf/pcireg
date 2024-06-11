@@ -86,8 +86,49 @@ int main(int argc, const char** argv)
 //=================================================================================================
 void showHelp()
 {
+    printf("pcireg v1.1\n");
     printf("pcireg [-hex] [-dec] [-r <region#>] [-d <vendor>:<device>] <address> [data]\n");
     exit(1);
+}
+//=================================================================================================
+
+
+
+//=================================================================================================
+// strToBin() - This strips out underscores from the token then calls "strtoul" and return the
+//              resulting value
+//=================================================================================================
+uint32_t strToBin(const char* str)
+{
+    char token[100], *out=token;
+
+    // Skip over whitespace
+    while (*str == 32 || *str == 9) ++str;
+
+    // Loop through every character of the input string
+    while (true)
+    {
+        // Fetch the next character
+        int c = *str++;
+
+        // If this character is an underscore, skip it
+        if (c == '_') continue;
+
+        // If this character is the end of the token, break
+        if (c == 0  || c ==  '\n' || c == '\r' || c == 32 || c == 9) break;
+
+        // Output the character to the token buffer.
+        *out++ = c;
+
+        // There's no way a token should exceed 90 characters
+        if ((out - token) > 90) break;
+    }
+
+    // Nul-terminate the buffer
+    *out = 0;
+
+    // Hand the caller the value of the token
+    return strtoul(token, 0, 0);
 }
 //=================================================================================================
 
@@ -146,10 +187,10 @@ void parseCommandLine(const char** argv)
 
         // Store this parameter into either "address" or "data"
         if (++index == 1)
-            axiAddr = strtoul(token, 0, 0);
+            axiAddr = strToBin(token);
         else
         {
-            axiData = strtoul(token, 0, 0);
+            axiData = strToBin(token);
             isAxiWrite = true;
         }
     }
