@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdexcept>
 #include "PciDevice.h"
+#include "tokenizer.h"
 
 using namespace std;
 
@@ -20,22 +21,28 @@ const int OM_HEX  = 2;
 const int OM_BOTH = 3;    
 int output_mode = OM_NONE;
 
-
+bool      wide        = false;
 int       pciRegion   = -1;
 bool      isAxiWrite  = false;
 uint32_t  axiAddr = 0xFFFFFFFF;
-uint32_t  axiData;
+uint64_t  axiData;
 string    device;
+string    symbolFile;
 int       vendorID;
 int       deviceID;
+string    symbol;
 PciDevice PCI;
 
 
-void showHelp();
-void parseCommandLine(const char** argv);
-void execute();
 
-
+void     showHelp();
+void     parseCommandLine(const char** argv);
+void     writeRegister(uint8_t* base_addr, uint32_t axi_addr, uint64_t data, bool wide);
+uint64_t readRegister (uint8_t* base_addr, uint32_t axi_addr,                bool wide);
+void     writeField   (uint8_t* base_addr, uint32_t axi_addr, uint64_t data, uint32_t fieldSpec);
+uint64_t readField    (uint8_t* base_addr, uint32_t axi_addr,                uint32_t fieldSpec);
+void     execute();
+uint64_t getSymbolValue(std::string symbol, std::string symbolFile);
 
 //=================================================================================================
 // main() - Command line is program_name [-r <region#>] <address> [data]
@@ -86,8 +93,8 @@ int main(int argc, const char** argv)
 //=================================================================================================
 void showHelp()
 {
-    printf("pcireg v1.1\n");
-    printf("pcireg [-hex] [-dec] [-r <region#>] [-d <vendor>:<device>] <address> [data]\n");
+    printf("pcireg v1.2\n");
+    printf("pcireg [-hex] [-dec] [-wide] [-r <region#>] [-d <vendor>:<device>] <address> [data]\n");
     exit(1);
 }
 //=================================================================================================
@@ -95,12 +102,14 @@ void showHelp()
 
 
 //=================================================================================================
-// strToBin() - This strips out underscores from the token then calls "strtoul" and return the
-//              resulting value
+// stripUnderscores()) - This strips out underscores from a token 
+//
+// This routine assumes the caller's "token" field is at least 100 bytes long
 //=================================================================================================
-uint32_t strToBin(const char* str)
+void stripUnderscores(const char* str, char* token)
 {
-    char token[100], *out=token;
+    // Point to the caller's output field
+    char *out=token;
 
     // Skip over whitespace
     while (*str == 32 || *str == 9) ++str;
@@ -126,11 +135,44 @@ uint32_t strToBin(const char* str)
 
     // Nul-terminate the buffer
     *out = 0;
+}
+//=================================================================================================
+
+
+
+//=================================================================================================
+// strToBin32() - This strips out underscores from the token then calls "strtoul" and return the
+//                resulting value
+//=================================================================================================
+uint32_t strToBin32(const char* str)
+{
+    char token[100];
+    
+    // Strip the underscores from the token
+    stripUnderscores(str, token);
 
     // Hand the caller the value of the token
     return strtoul(token, 0, 0);
 }
 //=================================================================================================
+
+
+//=================================================================================================
+// strToBin64() - This strips out underscores from the token then calls "strtoul" and return the
+//                resulting value
+//=================================================================================================
+uint64_t strToBin64(const char* str)
+{
+    char token[100];
+    
+    // Strip the underscores from the token
+    stripUnderscores(str, token);
+
+    // Hand the caller the value of the token
+    return strtoull(token, 0, 0);
+}
+//=================================================================================================
+
 
 
 
@@ -172,31 +214,53 @@ void parseCommandLine(const char** argv)
             continue;
         }
 
+        // If the user wants the output in decimal
         if (strcmp(token, "-dec") == 0)
         {
             output_mode |= OM_DEC;
             continue;            
         }
 
+        // If the user wants the output in hex...
         if (strcmp(token, "-hex") == 0)
         {
             output_mode |= OM_HEX;
             continue;            
         }
 
+        // If the user wants to perform a 64-bit read/write...
+        if (strcmp(token, "-wide") == 0)
+        {
+            wide = true;
+            continue;
+        }
 
-        // Store this parameter into either "address" or "data"
+        // If the user is giving us the name of a symbol file
+        if (strcmp(token, "-sym") == 0)
+        {
+            token = argv[i++];
+            if (token == nullptr) showHelp();
+            symbolFile = token;
+            continue;
+        }
+
+        // Store this parameter into either "address", "symbol" or "data"
         if (++index == 1)
-            axiAddr = strToBin(token);
+        {
+            if (token[0] >= '0' && token[0] <= '9')
+                axiAddr = strToBin32(token);
+            else
+                symbol = token;
+        }
         else
         {
-            axiData = strToBin(token);
+            axiData = strToBin64(token);
             isAxiWrite = true;
         }
     }
 
     // If the user failed to give us an address, that's fatal
-    if (axiAddr == 0xFFFFFFFF) showHelp();
+    if ((axiAddr == 0xFFFFFFFF) & symbol.empty()) showHelp();
 }
 //=================================================================================================
 
@@ -206,6 +270,9 @@ void parseCommandLine(const char** argv)
 //=================================================================================================
 void execute()
 {
+    uint64_t symbolValue;
+    uint32_t fieldSpec = 0;
+
     // Map the PCI memory-mapped resource regions into user-space
     PCI.open(device);
 
@@ -218,31 +285,266 @@ void execute()
         throw runtime_error("illegal PCI region");
     }
 
+    // Fetch the userspace address of the PCIe resource
+    uint8_t* baseAddr = (resource[pciRegion].baseAddr);
+
+    // If the user specified the address as a symbol...
+    if (!symbol.empty())
+    {
+        // Look up the value of the symbol
+        symbolValue = getSymbolValue(symbol, symbolFile);
+        
+        // The address of the register is the lower 32 bits of the symbol value
+        axiAddr = (uint32_t)(symbolValue & 0xFFFFFFFF);
+
+        // The field specifier is the upper 32-bits of the symbol value
+        fieldSpec = (symbolValue >> 32);
+
+        // A field-specifier of 0x20000000 is the same as 0
+        if (fieldSpec == 0x20000000) fieldSpec = 0;
+    }
+
     // If the user told us to use an AXI address that's outside of our region, that's fatal    
     if (axiAddr >= resource[pciRegion].size)
     {
         throw runtime_error("illegal AXI address");
     }
 
-    // Get a reference to this AXI register
-    uint32_t& axiReg = *(uint32_t*)(resource[pciRegion].baseAddr + axiAddr);
-
-    // Either write the data to the register, or read it and display the result
+    // If we're writing a value (i.e., not reading one) make it so
     if (isAxiWrite)
-        axiReg = axiData;
-    else
     {
-        axiData = axiReg;
-        switch (output_mode)
-        {
-            case OM_DEC:   printf("%u\n", axiData);
-                           break;
-            case OM_HEX:   printf("%08X\n", axiData);
-                           break;
-            case OM_BOTH:  printf("%u %08X\n", axiData, axiData);
-                           break;
-            default:       printf("0x%08X (%u)\n", axiData, axiData);        
-        }
+        if (fieldSpec == 0)
+            writeRegister(baseAddr, axiAddr, axiData, wide);
+        else
+            writeField(baseAddr, axiAddr, axiData, fieldSpec);
+        return;
     }
+
+    // If we get here, we're reading a register or a field within a register
+    // Field reads are never wide, they are always 32-bits
+    if (fieldSpec == 0)
+        axiData = readRegister(baseAddr, axiAddr, wide);
+    else 
+    {
+        wide = false;
+        axiData = readField(baseAddr, axiAddr, fieldSpec);
+    }
+
+        
+    // Display the data we read
+    if (wide) switch (output_mode)
+    {
+        case OM_DEC:   printf("%lu\n", axiData);
+                       break;
+        case OM_HEX:   printf("%016lX\n", axiData);
+                       break;
+        case OM_BOTH:  printf("%lu %016lX\n", axiData, axiData);
+                       break;
+        default:       printf("0x%016lX (%lu)\n", axiData, axiData);        
+    }
+    else switch (output_mode)
+    {
+        case OM_DEC:   printf("%lu\n", axiData);
+                       break;
+        case OM_HEX:   printf("%08lX\n", axiData);
+                       break;
+        case OM_BOTH:  printf("%lu %08lX\n", axiData, axiData);
+                       break;
+        default:       printf("0x%08lX (%lu)\n", axiData, axiData);        
+    }
+
 }
 //=================================================================================================
+
+
+
+
+//=================================================================================================
+// writeRegister- Writes either :
+//                  A single 32-bit value in a register
+//                         -- or --
+//                  A pair of 32-bit values into adjacent registers
+//=================================================================================================
+void writeRegister(uint8_t* base_addr, uint32_t axi_addr, uint64_t data, bool wide)
+{
+    // Get the userspace address of this register
+    uint32_t* addr = (uint32_t*)(base_addr + axi_addr);
+
+    // If we're supposed to write the upper 32-bits to a register make it so
+    if (wide) *addr++ = (uint32_t)(data >> 32);
+
+    // And write the lower 32-bits of the value into the register
+    *addr = (uint32_t)(data & 0xFFFFFFFF);
+}
+//=================================================================================================
+
+
+//=================================================================================================
+// readRegister - Reads either :
+//                   A single 32-bit value in a register
+//                          -- or --
+//                   A pair of 32-bit values into adjacent registers
+//=================================================================================================
+uint64_t readRegister(uint8_t* base_addr, uint32_t axi_addr, bool wide)
+{
+    // Get the userspace address of this register
+    uint32_t* addr = (uint32_t*)(base_addr + axi_addr);
+
+    // If we're returning a 64-bit value, read both registers
+    if (wide)
+    {
+        uint64_t hi = addr[0];
+        uint64_t lo = addr[1];
+        return (hi << 32) | lo;        
+    }
+    
+    // Otherwise, just return whatever is stored at the single 32-bit register
+    return addr[0];
+}
+//=================================================================================================
+
+
+
+//=================================================================================================
+// writeField - Writes a specific bit-field within a register
+//=================================================================================================
+void writeField(uint8_t* base_addr, uint32_t axi_addr, uint64_t data, uint32_t fieldSpec)
+{   
+    // Get the userspace address of this register
+    uint32_t* addr = (uint32_t*)(base_addr + axi_addr);
+
+    // Find the current value of the register
+    uint32_t currentValue = *addr;
+
+    // Fetch the bit-field's width, the position of the right-most bit
+    uint32_t width = (fieldSpec >> 24) & 0xFF;
+    uint32_t pos   = (fieldSpec >> 16) & 0xFF;
+
+    // This is all 1's in the right-most 'width' bits
+    uint32_t mask = (1 << width) - 1;
+
+    // Mask off any invalid bits of the data we're going to write
+    uint32_t maskedData = (uint32_t)(data & mask);
+
+    // In the currentValue, set all bits of this field to zero
+    uint32_t newValue = currentValue & ~(mask << pos);
+
+    // Stamp the data value into the bit-field
+    newValue |= (maskedData << pos);
+
+    // And store the new value into the register
+    *addr = newValue;
+}
+//=================================================================================================
+
+
+
+
+
+//=================================================================================================
+// readField - Reads a specific bit-field within a register
+//=================================================================================================
+uint64_t readField(uint8_t* base_addr, uint32_t axi_addr, uint32_t fieldSpec)
+{   
+    // Get the userspace address of this register
+    uint32_t* addr = (uint32_t*)(base_addr + axi_addr);
+
+    // Find the current value of the register
+    uint32_t currentValue = *addr;
+
+    // Fetch the bit-field's width, the position of the right-most bit
+    uint32_t width = (fieldSpec >> 24) & 0xFF;
+    uint32_t pos   = (fieldSpec >> 16) & 0xFF;
+
+    // This is all 1's in the right-most 'width' bits
+    uint32_t mask = (1 << width) - 1;
+
+    return (currentValue >> pos) & mask;
+
+}
+//=================================================================================================
+
+
+
+
+//=============================================================================
+// getSymbolValue() - Returns the 64-bit value that corresponds to the
+//                    specified symbol
+//=============================================================================
+uint64_t getSymbolValue(string symbol, string symbolFile)
+{
+    char line[10000];
+    CTokenizer tokenizer;
+    string     err;
+
+    // If no symbol file was specified, see if one is specified by the environment variable
+    if (symbol.empty())
+    {
+        char* p = getenv("pcireg_symbols");
+        if (p) symbolFile = p;
+    };
+
+    // If we still don't have a symbol file, use "fpga_reg.h"
+    if (symbolFile.empty()) symbolFile = "fpga_reg.h";
+
+    // Open the input file
+    FILE* ifile = fopen(symbolFile.c_str(), "r");
+
+    // If we can't open the input file, complain
+    if (ifile == nullptr)
+    {
+        err = "pcireg : cant open symbol file" + symbolFile;
+        throw runtime_error(err);
+    }
+
+    // Loop through the symbol file...
+    while (fgets(line, sizeof(line), ifile))
+    {
+        // Point to the first character of the line
+        char* in = line;
+
+        // Skip over spaces and tabs
+        while (*in == 32 || *in == 9) ++in;
+
+        // If it's the end of the line, ignore the line
+        if (*in == 10 || *in == 13 || *in == 0) continue;
+
+        // If it's a comment, ignore the line
+        if (in[0] == '/' && in[1] == '/') continue;
+
+        // Parse this line into tokens
+        vector<string> token = tokenizer.parse(in);
+
+        // If there aren't exactly 3 tokens on the line, ignore the line
+        if (token.size() != 3) continue;
+
+        // If the first token isn't "#define", ignore the line
+        if (token[0] != "#define") continue;
+
+        // The 2nd token on the line is the name of the register
+        string& registerName = token[1];
+
+        // If this is the symbol we're looking for...
+        if (registerName == symbol)
+        {
+            // Done with the input file
+            fclose(ifile);
+        
+            // The 3rd token on the line is the 64-bit address of the register
+            return strtoull(token[2].c_str(), nullptr, 0);
+        }
+    }
+
+    // We're done with the input file
+    fclose(ifile);
+
+    // And complain that we couldn't find the symbol
+    err = "pcireg : cant find "+symbol+" in "+symbolFile;
+    throw runtime_error(err);
+
+    // This is just to keep the compiler happy
+    return 0;
+}
+//=============================================================================
+
+
