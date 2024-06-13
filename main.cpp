@@ -55,14 +55,14 @@ int main(int argc, const char** argv)
 
     // If there was no device specified on the command line, try fetching it from
     // the environment variable
-    if (device == "") 
+    if (device.empty()) 
     {
         p = getenv("pcireg_device");
         if (p) device = p;
     }
 
     // If no device is otherwise specified, use the default
-    if (device == "") device = "10EE:903F";
+    if (device.empty()) device = "10EE:903F";
 
     // If there was no region specified on the command line, try fetching it from
     // the environment variable
@@ -74,6 +74,16 @@ int main(int argc, const char** argv)
 
     // If no region is otherwise specified, use the default
     if (pciRegion == -1) pciRegion = 0;
+
+    // If no symbol file was given, try fetching it from the environment variable
+    if (symbolFile.empty())
+    {
+        p = getenv("pcireg_symbols");
+        if (p) symbolFile = p;
+    };
+
+    // If we still don't have a symbol file, use "fpga_reg.h"
+    if (symbolFile.empty()) symbolFile = "fpga_reg.h";
 
     try
     {
@@ -320,8 +330,8 @@ void execute()
         return;
     }
 
-    // If we get here, we're reading a register or a field within a register
-    // Field reads are never wide, they are always 32-bits
+    // If we get here, we're reading a register or a field within a register.
+    // Field reads are never wide, they are always from with a single 32-bit register
     if (fieldSpec == 0)
         axiData = readRegister(baseAddr, axiAddr, wide);
     else 
@@ -416,7 +426,7 @@ void writeField(uint8_t* base_addr, uint32_t axi_addr, uint64_t data, uint32_t f
     // Find the current value of the register
     uint32_t currentValue = *addr;
 
-    // Fetch the bit-field's width, the position of the right-most bit
+    // Fetch the bit-field's width, and the position of the right-most bit
     uint32_t width = (fieldSpec >> 24) & 0xFF;
     uint32_t pos   = (fieldSpec >> 16) & 0xFF;
 
@@ -452,15 +462,15 @@ uint64_t readField(uint8_t* base_addr, uint32_t axi_addr, uint32_t fieldSpec)
     // Find the current value of the register
     uint32_t currentValue = *addr;
 
-    // Fetch the bit-field's width, the position of the right-most bit
+    // Fetch the bit-field's width, and the position of the right-most bit
     uint32_t width = (fieldSpec >> 24) & 0xFF;
     uint32_t pos   = (fieldSpec >> 16) & 0xFF;
 
     // This is all 1's in the right-most 'width' bits
     uint32_t mask = (1 << width) - 1;
 
+    // Hand the caller the value of this bit-field
     return (currentValue >> pos) & mask;
-
 }
 //=================================================================================================
 
@@ -476,16 +486,6 @@ uint64_t getSymbolValue(string symbol, string symbolFile)
     char line[10000];
     CTokenizer tokenizer;
     string     err;
-
-    // If no symbol file was specified, see if one is specified by the environment variable
-    if (symbol.empty())
-    {
-        char* p = getenv("pcireg_symbols");
-        if (p) symbolFile = p;
-    };
-
-    // If we still don't have a symbol file, use "fpga_reg.h"
-    if (symbolFile.empty()) symbolFile = "fpga_reg.h";
 
     // Open the input file
     FILE* ifile = fopen(symbolFile.c_str(), "r");
