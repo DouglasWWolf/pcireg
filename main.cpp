@@ -192,7 +192,7 @@ uint64_t strToBin64(const char* str)
 // On Exit:  pciRegion  = the PCI resource region to read/write
 //           isAxiWrite = true if we are performing a write, false if we're performing a read
 //           axiAddr    = the relative address (with the PCI region) to read/write
-//           axiDatra   = if 'isAxiWrite' is true, the 32-bit data word to be written
+//           axiData    = if 'isAxiWrite' is true, the 32-bit data word to be written
 //=================================================================================================
 void parseCommandLine(const char** argv)
 {
