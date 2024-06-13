@@ -94,7 +94,7 @@ int main(int argc, const char** argv)
 void showHelp()
 {
     printf("pcireg v1.2\n");
-    printf("pcireg [-hex] [-dec] [-wide] [-r <region#>] [-d <vendor>:<device>] <address> [data]\n");
+    printf("pcireg [-hex] [-dec] [-wide] [-r <region#>] [-d <vendor>:<device>] [-sym <filename>] <address> [data]\n");
     exit(1);
 }
 //=================================================================================================
@@ -426,7 +426,7 @@ void writeField(uint8_t* base_addr, uint32_t axi_addr, uint64_t data, uint32_t f
     // Mask off any invalid bits of the data we're going to write
     uint32_t maskedData = (uint32_t)(data & mask);
 
-    // In the currentValue, set all bits of this field to zero
+    // In the newValue, set all bits of this field to zero
     uint32_t newValue = currentValue & ~(mask << pos);
 
     // Stamp the data value into the bit-field
