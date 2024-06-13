@@ -45,7 +45,7 @@ void     execute();
 uint64_t getSymbolValue(std::string symbol, std::string symbolFile);
 
 //=================================================================================================
-// main() - Command line is program_name [-r <region#>] <address> [data]
+// main() - Execution starts here.  See "showHelp()" for command line 
 //=================================================================================================
 int main(int argc, const char** argv)
 {
