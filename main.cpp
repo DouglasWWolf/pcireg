@@ -331,7 +331,7 @@ void execute()
     }
 
     // If we get here, we're reading a register or a field within a register.
-    // Field reads are never wide, they are always from with a single 32-bit register
+    // Field reads are never wide, they are always within a single 32-bit register
     if (fieldSpec == 0)
         axiData = readRegister(baseAddr, axiAddr, wide);
     else 
