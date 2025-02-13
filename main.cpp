@@ -2,6 +2,7 @@
 // pcireg - Tool for command-line read/write of PCI device registers
 //
 // Author: D. Wolf
+//
 //=================================================================================================
 #include <unistd.h>
 #include <stdio.h>
