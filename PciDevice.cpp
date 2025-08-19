@@ -234,6 +234,33 @@ void PciDevice::open(string device, string deviceDir)
 
 
 //=================================================================================================
+// openDirect() - Opens a connection directly to a memory address
+//=================================================================================================
+void PciDevice::openDirect(uint64_t physAddr, uint32_t size)
+{
+
+    // If we already have a PCIe device mapped, unmap it
+    close();
+
+    // This is the single resource descriptor that we need
+    resource_t resource;
+
+    // Fill in the size and physical address of the resource.  We are masking off
+    // the 12 lowest bits to ensure that these are on a 4K boundary
+    resource.size = size & ~(0xFFF);
+    resource.physAddr = physAddr & ~(0xFFF);
+
+    // Add this to the resource list.
+    resource_.push_back(resource);
+
+    // Memory map this resource into userspace
+    mapResources();
+}
+//=================================================================================================
+
+
+
+//=================================================================================================
 // open() - Opens a connection to the specified PCIe device
 //
 // Passed: vendorID  = The vendor ID of the PCIe device we're looking for

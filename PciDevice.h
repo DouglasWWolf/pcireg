@@ -26,6 +26,9 @@ public:
     void    open(int vendorID, int deviceID, std::string deviceDir = "");
     void    open(std::string device, std::string deviceDir = "");
 
+    // Opens a direct connection to the address space
+    void    openDirect(uint64_t physAddr, uint32_t size);
+
     // Fetches the list of memory mappable resources
     std::vector<resource_t>& resourceList() {return resource_;}
     

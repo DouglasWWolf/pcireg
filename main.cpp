@@ -3,6 +3,11 @@
 //
 // Author: D. Wolf
 //
+// Limitation:    axiAddr is restricted to 32-bits.  This can be fixed in a later version.
+//
+// Ver    Date       Who  What
+//---------------------------------------------------------------------------------------------
+// 1.3    18-Aug-25  DWW  Added support for "direct" mode (direct reading/writing an address)
 //=================================================================================================
 #include <unistd.h>
 #include <stdio.h>
@@ -104,7 +109,7 @@ int main(int argc, const char** argv)
 //=================================================================================================
 void showHelp()
 {
-    printf("pcireg v1.2\n");
+    printf("pcireg v1.3\n");
     printf("pcireg [-hex] [-dec] [-wide] [-r <region#>] [-d <vendor>:<device>] [-sym <filename>] <address> [data]\n");
     exit(1);
 }
@@ -285,7 +290,14 @@ void execute()
     uint32_t fieldSpec = 0;
 
     // Map the PCI memory-mapped resource regions into user-space
-    PCI.open(device);
+    if (device == "direct")
+        PCI.openDirect(axiAddr, 0x1000);
+    else
+        PCI.open(device);
+
+    // If we're in direct-access mode, we only care about the lower 12
+    // bits of the AXI address
+    if (device == "direct") axiAddr &= 0xFFF;
 
     // Fetch the list of memory mapped resource regions
     auto resource = PCI.resourceList();
