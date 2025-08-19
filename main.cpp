@@ -50,6 +50,13 @@ uint64_t readField    (uint8_t* base_addr, uint32_t axi_addr,                uin
 void     execute();
 uint64_t getSymbolValue(std::string symbol, std::string symbolFile);
 
+// On ARM architecture, assume we normally want direct memory access
+#ifdef __aarch64__
+    const char* DEFAULT_DEVICE = "direct";
+#else
+    const char* DEFAULT_DEVICE = "10ee:903f";
+#endif
+
 //=================================================================================================
 // main() - Execution starts here.  See "showHelp()" for command line 
 //=================================================================================================
@@ -68,7 +75,7 @@ int main(int argc, const char** argv)
     }
 
     // If no device is otherwise specified, use the default
-    if (device.empty()) device = "10EE:903F";
+    if (device.empty()) device = DEFAULT_DEVICE;
 
     // If there was no region specified on the command line, try fetching it from
     // the environment variable
