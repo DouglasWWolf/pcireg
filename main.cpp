@@ -8,6 +8,8 @@
 // Ver    Date       Who  What
 //---------------------------------------------------------------------------------------------
 // 1.3    18-Aug-25  DWW  Added support for "direct" mode (direct reading/writing an address)
+//
+// 1.4    21-Jan-26  DWW  Added support for the "-bdf" command line option
 //=================================================================================================
 #include <unistd.h>
 #include <stdio.h>
@@ -36,6 +38,7 @@ string    device;
 string    symbolFile;
 int       vendorID;
 int       deviceID;
+string    bdf;
 string    symbol;
 PciDevice PCI;
 
@@ -77,6 +80,14 @@ int main(int argc, const char** argv)
     // If no device is otherwise specified, use the default
     if (device.empty()) device = DEFAULT_DEVICE;
 
+    // If there was no BDF specified on the command line, try fetching it from
+    // the environment variable
+    if (bdf.empty())
+    {
+        p = getenv("pcireg_bdf");
+        if (p) bdf = p;        
+    }
+
     // If there was no region specified on the command line, try fetching it from
     // the environment variable
     if (pciRegion == -1)
@@ -116,8 +127,8 @@ int main(int argc, const char** argv)
 //=================================================================================================
 void showHelp()
 {
-    printf("pcireg v1.3\n");
-    printf("pcireg [-hex] [-dec] [-wide] [-r <region#>] [-d <vendor>:<device>] [-sym <filename>] <address> [data]\n");
+    printf("pcireg v1.4\n");
+    printf("pcireg [-hex] [-dec] [-wide] [-r <region#>] [-d <vendor>:<device>] [-bdf <BDF>] [-sym <filename>] <address> [data]\n");
     exit(1);
 }
 //=================================================================================================
@@ -237,6 +248,17 @@ void parseCommandLine(const char** argv)
             continue;
         }
 
+
+        // If it's the "-bdf" switch, the user is specifying a PCI BDF
+        if (strcmp(token, "-bdf") == 0)
+        {
+            token = argv[i++];
+            if (token == nullptr) showHelp();
+            bdf = token;
+            continue;
+        }
+
+
         // If the user wants the output in decimal
         if (strcmp(token, "-dec") == 0)
         {
@@ -300,7 +322,7 @@ void execute()
     if (device == "direct")
         PCI.openDirect(axiAddr, 0x1000);
     else
-        PCI.open(device);
+        PCI.open(device, bdf);
 
     // If we're in direct-access mode, we only care about the lower 12
     // bits of the AXI address

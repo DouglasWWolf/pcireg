@@ -210,10 +210,11 @@ std::vector<PciDevice::resource_t> PciDevice::getResourceList(std::string device
 // open() - Opens a connection to the specified PCIe device
 //
 // Passed: device    = device identifier in the form "xxxx:yyyy"
+//         bdf       = BDF (Bus/Device/Function) of the PCI slot we're interested in (or "")
 //         deviceDir = Name of the file-system directory where PCI device information can
 //                     be found.   If empty-string, a sensible default is used
 //=================================================================================================
-void PciDevice::open(string device, string deviceDir)
+void PciDevice::open(string device, string bdf, string deviceDir)
 {
     int vendorID=0, deviceID=0;
 
@@ -227,7 +228,7 @@ void PciDevice::open(string device, string deviceDir)
     if (p) deviceID = strtoul(p+1, 0, 16);
 
     // Now that we have the vendorID and deviceID as integers, call the regular "open" routine
-    open(vendorID, deviceID, deviceDir);
+    open(vendorID, deviceID, bdf, deviceDir);
 }
 //=================================================================================================
 
@@ -265,12 +266,16 @@ void PciDevice::openDirect(uint64_t physAddr, uint32_t size)
 //
 // Passed: vendorID  = The vendor ID of the PCIe device we're looking for
 //         deviceID  = The device ID of the PCIe device we're looking for
+//         bdf       = BDF (Bus/Device/Function) of the PCI slot we're interested in (or "")
 //         deviceDir = Name of the file-system directory where PCI device information can
 //                     be found.   If empty-string, a sensible default is used
 //=================================================================================================
-void PciDevice::open(int vendorID, int deviceID, string deviceDir)
+void PciDevice::open(int vendorID, int deviceID, string bdf, string deviceDir)
 {
-    string  dirName;
+    string  path;
+
+    // Some versions of Linux use directory names that have "0000:" prefixed to the BDF
+    string alternate_bdf = "0000:" + bdf;
 
     // We have not yet found the device that we're looking for
     bool found = false;
@@ -288,11 +293,21 @@ void PciDevice::open(int vendorID, int deviceID, string deviceDir)
         if (!entry.is_directory()) continue;
 
         // Fetch the name of the directory that we're about to examine
-        dirName = entry.path().string();
+        path = entry.path().string();
+          
+        // Fetch the directory name from the end of the path
+        string dirname = entry.path().filename();
+
+        // If the user specified a BDF, our directory name must match
+        // the specified BDF
+        if (!bdf.empty() && dirname != alternate_bdf && dirname != bdf)
+        {
+            continue;
+        }
 
         // Fetch the vendor ID and device ID of this device
-        int thisVendorID = getIntegerFromFile(dirName + "/vendor");
-        int thisDeviceID = getIntegerFromFile(dirName + "/device");
+        int thisVendorID = getIntegerFromFile(path + "/vendor");
+        int thisDeviceID = getIntegerFromFile(path + "/device");
 
         // If this vendor ID and device ID match the caller's, we have found 
         // the droid we're looking for.
@@ -307,7 +322,7 @@ void PciDevice::open(int vendorID, int deviceID, string deviceDir)
     if (!found) throwRuntime("No PCI device found for vendor=0x%X, device=0x%X", vendorID, deviceID);
 
     // Fetch the physical address and size of each resource (i.e. BAR) that our device supports
-    resource_ = getResourceList(dirName);
+    resource_ = getResourceList(path);
 
     // Memory map each of the PCI device resources into userspace
     mapResources();

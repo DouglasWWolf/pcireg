@@ -23,8 +23,8 @@ public:
     struct resource_t {uint8_t* baseAddr; size_t size; off_t physAddr;};
 
     // Opens a connection to a PCIe device
-    void    open(int vendorID, int deviceID, std::string deviceDir = "");
-    void    open(std::string device, std::string deviceDir = "");
+    void    open(int vendorID, int deviceID, std::string bdf = "", std::string deviceDir = "");
+    void    open(std::string device,         std::string bdf = "", std::string deviceDir = "");
 
     // Opens a direct connection to the address space
     void    openDirect(uint64_t physAddr, uint32_t size);
