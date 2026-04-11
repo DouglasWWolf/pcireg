@@ -10,6 +10,8 @@
 // 1.3    18-Aug-25  DWW  Added support for "direct" mode (direct reading/writing an address)
 //
 // 1.4    21-Jan-26  DWW  Added support for the "-bdf" command line option
+//
+// 1.5    10-Apr-26  DWW  Now interprets a register descriptor of "0x4000_0000" as "-wide"
 //=================================================================================================
 #include <unistd.h>
 #include <stdio.h>
@@ -32,7 +34,6 @@ int output_mode = OM_NONE;
 bool      wide        = false;
 int       pciRegion   = -1;
 bool      isAxiWrite  = false;
-uint32_t  axiAddr = 0xFFFFFFFF;
 uint64_t  axiData;
 string    device;
 string    symbolFile;
@@ -127,7 +128,7 @@ int main(int argc, const char** argv)
 //=================================================================================================
 void showHelp()
 {
-    printf("pcireg v1.4\n");
+    printf("pcireg v1.5\n");
     printf("pcireg [-hex] [-dec] [-wide] [-r <region#>] [-d <vendor>:<device>] [-bdf <BDF>] [-sym <filename>] <address> [data]\n");
     exit(1);
 }
@@ -175,32 +176,15 @@ void stripUnderscores(const char* str, char* token)
 
 
 //=================================================================================================
-// strToBin32() - This strips out underscores from the token then calls "strtoul" and return the
-//                resulting value
+// str_to_bin64() - This strips out underscores from the token then calls "strtoull" and return the
+//                  resulting value
 //=================================================================================================
-uint32_t strToBin32(const char* str)
+uint64_t str_to_bin64(const string& s)
 {
     char token[100];
     
     // Strip the underscores from the token
-    stripUnderscores(str, token);
-
-    // Hand the caller the value of the token
-    return strtoul(token, 0, 0);
-}
-//=================================================================================================
-
-
-//=================================================================================================
-// strToBin64() - This strips out underscores from the token then calls "strtoul" and return the
-//                resulting value
-//=================================================================================================
-uint64_t strToBin64(const char* str)
-{
-    char token[100];
-    
-    // Strip the underscores from the token
-    stripUnderscores(str, token);
+    stripUnderscores(s.c_str(), token);
 
     // Hand the caller the value of the token
     return strtoull(token, 0, 0);
@@ -210,12 +194,14 @@ uint64_t strToBin64(const char* str)
 
 
 
+
 //=================================================================================================
 // parseCommandLine() - Parses the command line parameters
 //
 // On Exit:  pciRegion  = the PCI resource region to read/write
 //           isAxiWrite = true if we are performing a write, false if we're performing a read
-//           axiAddr    = the relative address (with the PCI region) to read/write
+//           symbol     = the (potentially symbolic) relative address (with the PCI region)
+//                        to read/write
 //           axiData    = if 'isAxiWrite' is true, the 32-bit data word to be written
 //=================================================================================================
 void parseCommandLine(const char** argv)
@@ -289,23 +275,20 @@ void parseCommandLine(const char** argv)
             continue;
         }
 
-        // Store this parameter into either "address", "symbol" or "data"
+        // Store this parameter into either "symbol" or "data"
         if (++index == 1)
         {
-            if (token[0] >= '0' && token[0] <= '9')
-                axiAddr = strToBin32(token);
-            else
-                symbol = token;
+            symbol = token;
         }
         else
         {
-            axiData = strToBin64(token);
+            axiData = str_to_bin64(token);
             isAxiWrite = true;
         }
     }
 
     // If the user failed to give us an address, that's fatal
-    if ((axiAddr == 0xFFFFFFFF) & symbol.empty()) showHelp();
+    if (symbol.empty()) showHelp();
 }
 //=================================================================================================
 
@@ -315,12 +298,37 @@ void parseCommandLine(const char** argv)
 //=================================================================================================
 void execute()
 {
-    uint64_t symbolValue;
-    uint32_t fieldSpec = 0;
+    uint64_t descriptor;
+    uint32_t fieldSpec;
+
+    // Fetch the first character of our address symbol
+    int c = symbol[0];
+
+    // If the symbol is numeric....
+    if (c >= '0' && c <= '9')
+        descriptor = str_to_bin64(symbol);        
+    else
+        descriptor = getSymbolValue(symbol, symbolFile);
+        
+    // The address of the register is the lower 32 bits of the symbol value
+    uint32_t axiAddr = (uint32_t)(descriptor & 0xFFFFFFFF);
+
+    // The field specifier is the upper 32-bits of the symbol value
+    fieldSpec = (descriptor >> 32);
+
+    // A field-specifier of 0x20000000 is the same as 0
+    if (fieldSpec == 0x20000000) fieldSpec = 0;
+
+    // A field-specifier of 0x40000000 is the same as -wide
+    if (fieldSpec == 0x40000000) 
+    {
+        fieldSpec = 0;
+        wide = true;
+    }
 
     // Map the PCI memory-mapped resource regions into user-space
     if (device == "direct")
-        PCI.openDirect(axiAddr, 0x1000);
+        PCI.openDirect(axiAddr, 0x2000);
     else
         PCI.open(device, bdf);
 
@@ -331,30 +339,15 @@ void execute()
     // Fetch the list of memory mapped resource regions
     auto resource = PCI.resourceList();
 
+    // Fetch the userspace address of the PCIe resource
+    uint8_t* baseAddr = (resource[pciRegion].baseAddr);
+
     // If the user told us to use a non-existent PCI resource region, that's fatal
     if (pciRegion < 0 || pciRegion >= resource.size())
     {
         throw runtime_error("illegal PCI region");
     }
-
-    // Fetch the userspace address of the PCIe resource
-    uint8_t* baseAddr = (resource[pciRegion].baseAddr);
-
-    // If the user specified the address as a symbol...
-    if (!symbol.empty())
-    {
-        // Look up the value of the symbol
-        symbolValue = getSymbolValue(symbol, symbolFile);
-        
-        // The address of the register is the lower 32 bits of the symbol value
-        axiAddr = (uint32_t)(symbolValue & 0xFFFFFFFF);
-
-        // The field specifier is the upper 32-bits of the symbol value
-        fieldSpec = (symbolValue >> 32);
-
-        // A field-specifier of 0x20000000 is the same as 0
-        if (fieldSpec == 0x20000000) fieldSpec = 0;
-    }
+   
 
     // If the user told us to use an AXI address that's outside of our region, that's fatal    
     if (axiAddr >= resource[pciRegion].size)
